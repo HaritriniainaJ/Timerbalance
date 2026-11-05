@@ -45,3 +45,5 @@ Interface (deuxième terminal) :
 | GET | /timer/current | Chronomètre en cours |
 | POST | /timer/start, /timer/stop | Démarrer, arrêter le chronomètre |
 | GET | /stats/today | Temps par activité et alertes |
+| PUT, DELETE | /activities/{id} | Modifier, supprimer une activité |
+| PUT | /schedules/{id} | Modifier un créneau |

@@ -10,6 +10,9 @@ from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.progressbar import ProgressBar
 from kivy.uix.screenmanager import Screen
+from kivy.uix.spinner import Spinner
+from kivy.uix.textinput import TextInput
+from kivy.uix.widget import Widget
 
 import api
 
@@ -22,8 +25,36 @@ def fmt_minutes(minutes):
 
 
 def make_row(height=40):
-    row = BoxLayout(size_hint_y=None, height=height, spacing=6)
-    return row
+    return BoxLayout(size_hint_y=None, height=height, spacing=6)
+
+
+def wrapped_label(text, **kwargs):
+    """Label dont le texte passe à la ligne selon la largeur."""
+    lbl = Label(text=text, halign="center", valign="middle", **kwargs)
+    lbl.bind(width=lambda inst, w: setattr(inst, "text_size", (w, None)))
+    return lbl
+
+
+def small_label(text):
+    return Label(text=text, size_hint_y=None, height=24)
+
+
+def form_popup(title, widgets, on_save):
+    """Fenêtre de saisie avec boutons Annuler / Enregistrer."""
+    content = BoxLayout(orientation="vertical", padding=12, spacing=8)
+    for w in widgets:
+        content.add_widget(w)
+    content.add_widget(Widget())  # espace libre
+    buttons = BoxLayout(size_hint_y=None, height=44, spacing=8)
+    cancel = Button(text="Annuler")
+    save = Button(text="Enregistrer")
+    buttons.add_widget(cancel)
+    buttons.add_widget(save)
+    content.add_widget(buttons)
+    popup = Popup(title=title, content=content, size_hint=(0.9, 0.7))
+    cancel.bind(on_release=popup.dismiss)
+    save.bind(on_release=lambda _b: on_save(popup))
+    popup.open()
 
 
 class DashboardScreen(Screen):
@@ -143,20 +174,32 @@ class PlanningScreen(Screen):
         for s in schedules:
             row = make_row()
             row.add_widget(Label(text=f"{s['start_time']} – {s['end_time']}   {s['activity_name']}"))
-            btn = Button(text="Suppr.", size_hint_x=None, width=80)
-            btn.bind(on_release=lambda _b, sid=s["id"]: self.delete(sid))
-            row.add_widget(btn)
+            edit = Button(text="Modifier", size_hint_x=None, width=90)
+            edit.bind(on_release=lambda _b, sched=s: self.edit_dialog(sched))
+            remove = Button(text="Suppr.", size_hint_x=None, width=80)
+            remove.bind(on_release=lambda _b, sid=s["id"]: self.ask_delete(sid))
+            row.add_widget(edit)
+            row.add_widget(remove)
             box.add_widget(row)
+
+    def _check(self, activity, start, end):
+        """Retourne un message d'erreur, ou None si tout est valide."""
+        if activity is None:
+            return "Choisissez une activité."
+        if not (TIME_RE.match(start) and TIME_RE.match(end)):
+            return "Format d'heure invalide (HH:MM, ex. 07:30)."
+        if end <= start:
+            return "L'heure de fin doit être après l'heure de début."
+        return None
 
     def add(self):
         name = self.ids.activity_spinner.text
         start = self.ids.start_input.text.strip()
         end = self.ids.end_input.text.strip()
         activity = next((a for a in self.activities if a["name"] == name), None)
-        if activity is None:
-            return self._error("Choisissez une activité.")
-        if not (TIME_RE.match(start) and TIME_RE.match(end)):
-            return self._error("Format d'heure invalide (HH:MM, ex. 07:30).")
+        message = self._check(activity, start, end)
+        if message:
+            return self._error(message)
         api.request(
             "/schedules",
             lambda r: self.load_schedules(),
@@ -164,6 +207,45 @@ class PlanningScreen(Screen):
             method="POST",
             body={"activity_id": activity["id"], "start_time": start, "end_time": end},
         )
+
+    def edit_dialog(self, sched):
+        spinner = Spinner(
+            text=sched["activity_name"],
+            values=[a["name"] for a in self.activities],
+            size_hint_y=None,
+            height=44,
+        )
+        start_in = TextInput(text=sched["start_time"], multiline=False, size_hint_y=None, height=44)
+        end_in = TextInput(text=sched["end_time"], multiline=False, size_hint_y=None, height=44)
+
+        def save(popup):
+            activity = next((a for a in self.activities if a["name"] == spinner.text), None)
+            start, end = start_in.text.strip(), end_in.text.strip()
+            message = self._check(activity, start, end)
+            if message:
+                return self._error(message)
+
+            def done(_result):
+                popup.dismiss()
+                self.load_schedules()
+
+            api.request(
+                f"/schedules/{sched['id']}",
+                done,
+                self._error,
+                method="PUT",
+                body={"activity_id": activity["id"], "start_time": start, "end_time": end},
+            )
+
+        form_popup(
+            "Modifier le créneau",
+            [small_label("Activité"), spinner, small_label("Début (HH:MM)"), start_in,
+             small_label("Fin (HH:MM)"), end_in],
+            save,
+        )
+
+    def ask_delete(self, schedule_id):
+        App.get_running_app().confirm("Supprimer ce créneau ?", lambda: self.delete(schedule_id))
 
     def delete(self, schedule_id):
         api.request(
@@ -190,15 +272,30 @@ class ActivitiesScreen(Screen):
         for a in activities:
             limit = a["daily_limit_minutes"]
             suffix = f"   (limite : {fmt_minutes(limit)}/jour)" if limit else ""
-            box.add_widget(Label(text=a["name"] + suffix, size_hint_y=None, height=36))
+            row = make_row()
+            row.add_widget(Label(text=a["name"] + suffix))
+            edit = Button(text="Modifier", size_hint_x=None, width=90)
+            edit.bind(on_release=lambda _b, act=a: self.edit_dialog(act))
+            remove = Button(text="Suppr.", size_hint_x=None, width=80)
+            remove.bind(on_release=lambda _b, act=a: self.ask_delete(act))
+            row.add_widget(edit)
+            row.add_widget(remove)
+            box.add_widget(row)
+
+    @staticmethod
+    def _limit_error(limit_text):
+        if limit_text and (not limit_text.isdigit() or int(limit_text) == 0):
+            return "La limite doit être un nombre de minutes supérieur à 0."
+        return None
 
     def add(self):
         name = self.ids.name_input.text.strip()
         limit_text = self.ids.limit_input.text.strip()
         if not name:
             return self._error("Donnez un nom à l'activité.")
-        if limit_text and not limit_text.isdigit():
-            return self._error("La limite doit être un nombre de minutes.")
+        message = self._limit_error(limit_text)
+        if message:
+            return self._error(message)
         body = {"name": name, "daily_limit_minutes": int(limit_text) if limit_text else None}
         api.request("/activities", self._added, self._error, method="POST", body=body)
 
@@ -206,6 +303,58 @@ class ActivitiesScreen(Screen):
         self.ids.name_input.text = ""
         self.ids.limit_input.text = ""
         self.load()
+
+    def edit_dialog(self, act):
+        name_in = TextInput(text=act["name"], multiline=False, size_hint_y=None, height=44)
+        limit_in = TextInput(
+            text=str(act["daily_limit_minutes"] or ""),
+            hint_text="vide = pas de limite",
+            input_filter="int",
+            multiline=False,
+            size_hint_y=None,
+            height=44,
+        )
+
+        def save(popup):
+            name = name_in.text.strip()
+            limit_text = limit_in.text.strip()
+            if not name:
+                return self._error("Donnez un nom à l'activité.")
+            message = self._limit_error(limit_text)
+            if message:
+                return self._error(message)
+
+            def done(_result):
+                popup.dismiss()
+                self.load()
+
+            api.request(
+                f"/activities/{act['id']}",
+                done,
+                self._error,
+                method="PUT",
+                body={"name": name, "daily_limit_minutes": int(limit_text) if limit_text else None},
+            )
+
+        form_popup(
+            "Modifier l'activité",
+            [small_label("Nom"), name_in, small_label("Limite par jour (minutes)"), limit_in],
+            save,
+        )
+
+    def ask_delete(self, act):
+        App.get_running_app().confirm(
+            f"Supprimer « {act['name']} » ?\nSes créneaux et son historique seront aussi supprimés.",
+            lambda: self.delete(act["id"]),
+        )
+
+    def delete(self, activity_id):
+        api.request(
+            f"/activities/{activity_id}",
+            lambda r: self.load(),
+            self._error,
+            method="DELETE",
+        )
 
     def _error(self, message):
         App.get_running_app().notify(message)
@@ -216,11 +365,30 @@ class TimeBalanceApp(App):
 
     def notify(self, message):
         content = BoxLayout(orientation="vertical", padding=12, spacing=12)
-        content.add_widget(Label(text=message, halign="center"))
+        content.add_widget(wrapped_label(message))
         close = Button(text="OK", size_hint_y=None, height=44)
         content.add_widget(close)
         popup = Popup(title="TimeBalance", content=content, size_hint=(0.85, 0.4))
         close.bind(on_release=popup.dismiss)
+        popup.open()
+
+    def confirm(self, message, on_yes):
+        content = BoxLayout(orientation="vertical", padding=12, spacing=12)
+        content.add_widget(wrapped_label(message))
+        buttons = BoxLayout(size_hint_y=None, height=44, spacing=8)
+        no = Button(text="Annuler")
+        yes = Button(text="Supprimer")
+        buttons.add_widget(no)
+        buttons.add_widget(yes)
+        content.add_widget(buttons)
+        popup = Popup(title="Confirmation", content=content, size_hint=(0.85, 0.4))
+        no.bind(on_release=popup.dismiss)
+
+        def confirmed(_b):
+            popup.dismiss()
+            on_yes()
+
+        yes.bind(on_release=confirmed)
         popup.open()
 
 

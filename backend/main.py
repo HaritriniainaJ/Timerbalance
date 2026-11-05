@@ -200,3 +200,62 @@ def stats_today(db: DB):
         activities=stats,
         alerts=alerts,
     )
+
+# ---------- Modifier / supprimer une activité ----------
+@app.put("/activities/{activity_id}", response_model=Activity)
+def update_activity(activity_id: int, activity: ActivityCreate, db: DB):
+    try:
+        cur = db.execute(
+            "UPDATE activities SET name = ?, daily_limit_minutes = ? WHERE id = ?",
+            (activity.name.strip(), activity.daily_limit_minutes, activity_id),
+        )
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="Cette activité existe déjà")
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Activité introuvable")
+    db.commit()
+    return {"id": activity_id, **activity.model_dump()}
+
+
+@app.delete("/activities/{activity_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_activity(activity_id: int, db: DB):
+    found = db.execute(
+        "SELECT id FROM activities WHERE id = ?", (activity_id,)
+    ).fetchone()
+    if found is None:
+        raise HTTPException(status_code=404, detail="Activité introuvable")
+    # On supprime aussi ce qui dépend de l'activité
+    db.execute("DELETE FROM time_logs WHERE activity_id = ?", (activity_id,))
+    db.execute("DELETE FROM schedules WHERE activity_id = ?", (activity_id,))
+    db.execute("DELETE FROM activities WHERE id = ?", (activity_id,))
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------- Modifier un créneau du planning ----------
+@app.put("/schedules/{schedule_id}", response_model=Schedule)
+def update_schedule(schedule_id: int, schedule: ScheduleCreate, db: DB):
+    existing = db.execute(
+        "SELECT day FROM schedules WHERE id = ?", (schedule_id,)
+    ).fetchone()
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Planning introuvable")
+    activity = db.execute(
+        "SELECT name FROM activities WHERE id = ?", (schedule.activity_id,)
+    ).fetchone()
+    if activity is None:
+        raise HTTPException(status_code=404, detail="Activité introuvable")
+    day = schedule.day or existing["day"]
+    db.execute(
+        "UPDATE schedules SET activity_id = ?, day = ?, start_time = ?, end_time = ? WHERE id = ?",
+        (schedule.activity_id, day, schedule.start_time, schedule.end_time, schedule_id),
+    )
+    db.commit()
+    return {
+        "id": schedule_id,
+        "activity_id": schedule.activity_id,
+        "activity_name": activity["name"],
+        "day": day,
+        "start_time": schedule.start_time,
+        "end_time": schedule.end_time,
+    }
