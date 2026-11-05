@@ -1,0 +1,146 @@
+#:kivy 2.3.0
+
+BoxLayout:
+    orientation: 'vertical'
+
+    ScreenManager:
+        id: sm
+        DashboardScreen:
+            name: 'dashboard'
+        PlanningScreen:
+            name: 'planning'
+        ActivitiesScreen:
+            name: 'activities'
+
+    BoxLayout:
+        size_hint_y: None
+        height: '48dp'
+        Button:
+            text: 'Tableau de bord'
+            on_release: sm.current = 'dashboard'
+        Button:
+            text: 'Planning'
+            on_release: sm.current = 'planning'
+        Button:
+            text: 'Activités'
+            on_release: sm.current = 'activities'
+
+<DashboardScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: '12dp'
+        spacing: '8dp'
+        Label:
+            text: 'TimeBalance'
+            font_size: '24sp'
+            size_hint_y: None
+            height: '40dp'
+        Label:
+            text: root.alert_text
+            color: 1, 0.45, 0.35, 1
+            text_size: self.width, None
+            halign: 'center'
+            size_hint_y: None
+            height: '48dp'
+        Label:
+            text: root.timer_text
+            font_size: '40sp'
+            size_hint_y: None
+            height: '64dp'
+        BoxLayout:
+            size_hint_y: None
+            height: '48dp'
+            spacing: '8dp'
+            Spinner:
+                id: activity_spinner
+                text: 'Choisir une activité'
+            Button:
+                text: root.button_text
+                size_hint_x: 0.5
+                on_release: root.toggle_timer()
+        Label:
+            text: "Aujourd'hui"
+            size_hint_y: None
+            height: '32dp'
+        ScrollView:
+            GridLayout:
+                id: stats_box
+                cols: 1
+                spacing: '6dp'
+                size_hint_y: None
+                height: self.minimum_height
+
+<PlanningScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: '12dp'
+        spacing: '8dp'
+        Label:
+            text: "Planning d'aujourd'hui"
+            font_size: '20sp'
+            size_hint_y: None
+            height: '36dp'
+        Spinner:
+            id: activity_spinner
+            text: 'Choisir une activité'
+            size_hint_y: None
+            height: '44dp'
+        BoxLayout:
+            size_hint_y: None
+            height: '44dp'
+            spacing: '8dp'
+            TextInput:
+                id: start_input
+                hint_text: 'Début (HH:MM)'
+                multiline: False
+            TextInput:
+                id: end_input
+                hint_text: 'Fin (HH:MM)'
+                multiline: False
+            Button:
+                text: 'Ajouter'
+                size_hint_x: 0.6
+                on_release: root.add()
+        ScrollView:
+            GridLayout:
+                id: schedule_box
+                cols: 1
+                spacing: '6dp'
+                size_hint_y: None
+                height: self.minimum_height
+
+<ActivitiesScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: '12dp'
+        spacing: '8dp'
+        Label:
+            text: 'Mes activités'
+            font_size: '20sp'
+            size_hint_y: None
+            height: '36dp'
+        BoxLayout:
+            size_hint_y: None
+            height: '44dp'
+            spacing: '8dp'
+            TextInput:
+                id: name_input
+                hint_text: 'Nom'
+                multiline: False
+            TextInput:
+                id: limit_input
+                hint_text: 'Limite/jour (min)'
+                input_filter: 'int'
+                multiline: False
+                size_hint_x: 0.6
+            Button:
+                text: 'Ajouter'
+                size_hint_x: 0.5
+                on_release: root.add()
+        ScrollView:
+            GridLayout:
+                id: activity_box
+                cols: 1
+                spacing: '6dp'
+                size_hint_y: None
+                height: self.minimum_height
